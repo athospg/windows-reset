@@ -151,3 +151,8 @@ $RECYCLE.BIN/
 
 # Built Visual Studio Code Extensions
 *.vsix
+
+.agents/
+.claude/
+.opencode/
+PROMPT.md
