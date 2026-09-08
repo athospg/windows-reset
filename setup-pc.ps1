@@ -36,8 +36,15 @@ if ($help) {
 }
 
 # 1. Ensure Administrator privileges
+# Relaunch keeps the window open (-NoExit) so errors don't vanish instantly.
+# Only pass -front/-back when true: PowerShell 5.1's -File mode cannot convert
+# the string "False" into a [switch] parameter bound with ":$false".
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -front:$front -back:$back" -Verb RunAs
+    $relaunchArgs = "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    if ($front) { $relaunchArgs += " -front" }
+    if ($back) { $relaunchArgs += " -back" }
+
+    Start-Process powershell $relaunchArgs -Verb RunAs
     exit
 }
 
@@ -197,6 +204,7 @@ $tweaks = @(
     [PSCustomObject]@{ ID = "Font.Hack";          Nome = "Hack Nerd Font";           Categoria = "Fonts";  Variant = "Hack Nerd Font";          Url = "$nerdFontsUrl/Hack.zip";          Modulo = $null; Marcado = $false }
     [PSCustomObject]@{ ID = "Tweak.NodeLTS";      Nome = "Node.js LTS via fnm";      Categoria = "Runtime";  Variant = $null; Url = $null; Modulo = $null; Marcado = $fnmAvailable }
     [PSCustomObject]@{ ID = "Tweak.pnpm";         Nome = "pnpm activation (requires Node.js LTS above)"; Categoria = "Runtime"; Variant = $null; Url = $null; Modulo = $null; Marcado = $fnmAvailable }
+    [PSCustomObject]@{ ID = "Tweak.OpenCode";     Nome = "OpenCode AI agent (requires Node.js LTS above)"; Categoria = "Runtime"; Variant = $null; Url = $null; Modulo = $null; Marcado = $fnmAvailable }
     [PSCustomObject]@{ ID = "Module.PSReadLine";      Nome = "Module PSReadLine";     Categoria = "PowerShell"; Variant = $null; Url = $null; Modulo = "PSReadLine";      Marcado = (-not ([bool](Get-Module -ListAvailable -Name PSReadLine -ErrorAction SilentlyContinue))) }
     [PSCustomObject]@{ ID = "Module.TerminalIcons";   Nome = "Module Terminal-Icons"; Categoria = "PowerShell"; Variant = $null; Url = $null; Modulo = "Terminal-Icons";  Marcado = (-not ([bool](Get-Module -ListAvailable -Name Terminal-Icons -ErrorAction SilentlyContinue))) }
     [PSCustomObject]@{ ID = "Module.PSFzf";           Nome = "Module PSFzf";          Categoria = "PowerShell"; Variant = $null; Url = $null; Modulo = "PSFzf";           Marcado = $fzfAvailable -and (-not ([bool](Get-Module -ListAvailable -Name PSFzf -ErrorAction SilentlyContinue))) }
@@ -210,6 +218,13 @@ $tweaksSelecionados = @($tweakMarcados | ForEach-Object { $tweaks[$_] })
 if ($tweaksSelecionados.ID -contains "Tweak.pnpm" -and -not ($tweaksSelecionados.ID -contains "Tweak.NodeLTS")) {
     $tweaksSelecionados = @($tweaksSelecionados | Where-Object { $_.ID -ne "Tweak.pnpm" })
     Write-Host "`nNOTE: pnpm was skipped because Node.js LTS was not selected." -ForegroundColor Yellow
+    Start-Sleep -Seconds 2
+}
+
+# OpenCode requires Node.js/npm (installed via the Node.js LTS tweak)
+if ($tweaksSelecionados.ID -contains "Tweak.OpenCode" -and -not ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") -and -not ($fnmAvailable -and [bool](Get-Command npm -ErrorAction SilentlyContinue))) {
+    $tweaksSelecionados = @($tweaksSelecionados | Where-Object { $_.ID -ne "Tweak.OpenCode" })
+    Write-Host "`nNOTE: OpenCode was skipped because Node.js/npm was not selected or found." -ForegroundColor Yellow
     Start-Sleep -Seconds 2
 }
 
@@ -258,9 +273,12 @@ Write-Host "==================================================" -ForegroundColor
 # Default arguments for winget to ensure silent installation and acceptance of agreements
 $wingetArgs = @("--silent", "--accept-package-agreements", "--accept-source-agreements", "--ignore-security-hash")
 
-# VS Code installs interactively so the user picks the installer options
-# (context menu entries, file associations, PATH) themselves in the wizard
-$vscodeArgs = @("--interactive", "--accept-package-agreements", "--accept-source-agreements")
+# VS Code installs silently. The context menu entries are created by
+# the 'vscode-context-menu.ps1' tweak step, so the equivalent installer
+# tasks are disabled here to avoid duplicated entries.
+# Task names are the same for stable and Insiders builds (build/win32/code.iss).
+$vscodeArgs = @("--silent", "--accept-package-agreements", "--accept-source-agreements",
+    "--override", '/VERYSILENT /NORESTART /MERGETASKS="!runcode,addcontextmenufiles,addcontextmenufolders,associatewithfiles,addtopath"')
 
 winget settings --enable InstallerHashOverride
 
@@ -364,16 +382,20 @@ if ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") {
     if ($fnmCmd) {
         Write-Host "`nConfiguring fnm and installing Node.js LTS..." -ForegroundColor Cyan
 
-        # Initialize fnm environment for current PowerShell session
-        fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+        # Refresh PATH so the newly installed fnm.exe is reachable in this session
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
         # Install and set LTS version as default
         fnm install --lts
         fnm use lts-latest
         fnm default lts-latest
 
-        # Refresh PATH again to ensure Node binaries (npm, npx, corepack) are accessible
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        # Build the fnm "multishell" PATH AFTER the version is installed, so
+        # npm/npx/corepack become reachable in this session. Doing this AFTER
+        # the install is essential: an env created before the install points
+        # to no node version. Refreshing PATH from the registry afterwards
+        # would erase the multishell entry again.
+        fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
 
         Write-Host "Node.js LTS installed successfully!" -ForegroundColor Green
     } else {
@@ -390,6 +412,25 @@ if ($tweaksSelecionados.ID -contains "Tweak.pnpm") {
         Write-Host "pnpm activated successfully!" -ForegroundColor Green
     } else {
         Write-Host "WARNING: Corepack not found. Please install pnpm manually later." -ForegroundColor Yellow
+    }
+}
+
+# 3.5 OpenCode AI agent via npm (requires Node.js installed by the tweak above)
+if ($tweaksSelecionados.ID -contains "Tweak.OpenCode") {
+    # Re-init the fnm environment so npm stays reachable even if the tweak
+    # above ran earlier (its multishell PATH entry may have been rebuilt).
+    if ($fnmCmd) {
+        fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+    } else {
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    }
+
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        Write-Host "Installing OpenCode AI agent (npm install -g opencode-ai@latest)..." -ForegroundColor Cyan
+        npm install -g opencode-ai@latest
+        Write-Host "OpenCode installed successfully! Run it with 'opencode'." -ForegroundColor Green
+    } else {
+        Write-Host "WARNING: npm not found in PATH. Install OpenCode manually with: npm install -g opencode-ai@latest" -ForegroundColor Yellow
     }
 }
 
