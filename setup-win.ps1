@@ -42,6 +42,11 @@ param (
     [switch]$NoApps,
     # Skip the tweaks selection menu (menu 2): no tweaks are applied
     [switch]$NoTweaks,
+    # Internal: username captured before the self-elevation relaunch. Used to
+    # abort when UAC elevates with a different admin account, which would make
+    # every per-user install ($LOCALAPPDATA, $PROFILE, npm, fnm) land on the
+    # wrong user profile.
+    [string]$ElevatedFor = "",
     [Alias("h", "?", "-help")]
     [switch]$help
 )
@@ -57,6 +62,7 @@ if ($help) {
 # the string "False" into a [switch] parameter bound with ":$false".
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     $relaunchArgs = "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    $relaunchArgs += " -ElevatedFor `"$env:USERNAME`""
     if ($front) { $relaunchArgs += " -front" }
     if ($back) { $relaunchArgs += " -back" }
     if ($NoPwsh) { $relaunchArgs += " -NoPwsh" }
@@ -65,6 +71,23 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 
     Start-Process powershell $relaunchArgs -Verb RunAs
     exit
+}
+
+# Guard: the elevated session must belong to the same user that launched the
+# script. Per-user installs ($LOCALAPPDATA, $PROFILE, npm/fnm globals) would
+# otherwise land on another account's profile (`-ElevatedFor` is empty when
+# the script was started already elevated, in which case we accept the caller).
+if ($ElevatedFor -and $env:USERNAME -ne $ElevatedFor) {
+    Write-Host @"
+
+ERROR: the elevated session is running as '$env:USERNAME', but the script
+was launched from '$ElevatedFor'. Per-user installations (VS Code, fnm, npm,
+profiles in Documents, etc.) would be placed on the wrong user profile.
+
+Re-run the script from your own admin account so the UAC prompt uses the
+credentials of '$ElevatedFor'.
+"@ -ForegroundColor Red
+    exit 1
 }
 
 # Base path shared with every helper module

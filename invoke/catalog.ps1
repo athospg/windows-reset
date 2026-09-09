@@ -27,6 +27,7 @@ function Get-AppCatalog {
         [PSCustomObject]@{ ID = "dbeaver.dbeaver";                   Nome = "DBeaver Community";             Categoria = "Dev"; Marcado = $false; Front = $false; Back = $true  }
         [PSCustomObject]@{ ID = "Microsoft.DotNet.SDK.10";           Nome = ".NET SDK 10";                   Categoria = "Dev"; Marcado = $false; Front = $false; Back = $true  }
         [PSCustomObject]@{ ID = "Microsoft.Teams";                   Nome = "Microsoft Teams";               Categoria = "Comm"; Marcado = $false; Front = $false; Back = $false }
+        [PSCustomObject]@{ ID = "Microsoft.PowerToys";              Nome = "PowerToys";                     Categoria = "Tools"; Marcado = $false; Front = $false; Back = $false }
         [PSCustomObject]@{ ID = "Brave.Brave";                       Nome = "Brave Browser";                 Categoria = "Browser"; Marcado = $false; Front = $true;  Back = $true  }
         [PSCustomObject]@{ ID = "WSL2";                              Nome = "WSL2 + Ubuntu";                 Categoria = "System"; Marcado = $false; Front = $false; Back = $false }
     )
