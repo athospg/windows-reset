@@ -62,6 +62,7 @@ $catalogo = @(
     [PSCustomObject]@{ ID = "Git.Git";                           Nome = "Git";                           Categoria = "Dev"; Marcado = $false; Front = $true;  Back = $true  }
     [PSCustomObject]@{ ID = "Fork.Fork";                         Nome = "Fork (Git Client)";             Categoria = "Dev"; Marcado = $false; Front = $true;  Back = $true  }
     [PSCustomObject]@{ ID = "Schniz.fnm";                        Nome = "fnm (Fast Node Manager)";       Categoria = "Dev"; Marcado = $false; Front = $true;  Back = $true  }
+    [PSCustomObject]@{ ID = "CoreyButler.NVMforWindows";         Nome = "NVM for Windows";               Categoria = "Dev"; Marcado = $false; Front = $false; Back = $false }
     [PSCustomObject]@{ ID = "Microsoft.VisualStudioCode.Insiders"; Nome = "VS Code Insiders";            Categoria = "Dev"; Marcado = $false; Front = $true;  Back = $true  }
     [PSCustomObject]@{ ID = "Microsoft.VisualStudioCode";        Nome = "VS Code";                       Categoria = "Dev"; Marcado = $false; Front = $false; Back = $false }
     [PSCustomObject]@{ ID = "SUSE.RancherDesktop";               Nome = "Rancher Desktop";               Categoria = "Dev"; Marcado = $false; Front = $false; Back = $true  }
@@ -183,8 +184,12 @@ function Test-WingetInstalled {
 }
 
 $fnmAvailable = ($selecionados.ID -contains "Schniz.fnm") -or (Test-WingetInstalled "Schniz.fnm") -or ([bool](Get-Command fnm -ErrorAction SilentlyContinue))
+$nvmAvailable = ($selecionados.ID -contains "CoreyButler.NVMforWindows") -or (Test-WingetInstalled "CoreyButler.NVMforWindows") -or ([bool](Get-Command nvm -ErrorAction SilentlyContinue))
 $fzfAvailable = ($selecionados.ID -contains "junegunn.fzf") -or (Test-WingetInstalled "junegunn.fzf") -or ([bool](Get-Command fzf -ErrorAction SilentlyContinue))
 $ompAvailable = ($selecionados.ID -contains "JanDeDobbeleer.OhMyPosh") -or (Test-WingetInstalled "JanDeDobbeleer.OhMyPosh") -or ([bool](Get-Command oh-my-posh -ErrorAction SilentlyContinue))
+
+# Any Node version manager is enough for the Node.js tweaks to make sense
+$nodeManagerAvailable = $fnmAvailable -or $nvmAvailable
 
 $vscodeMenuScript = Join-Path $PSScriptDir "vscode-context-menu.ps1"
 $vscodeAvailable = ($selecionados.ID -contains "Microsoft.VisualStudioCode") -or
@@ -202,9 +207,9 @@ $tweaks = @(
     [PSCustomObject]@{ ID = "Font.JetBrainsMono"; Nome = "JetBrainsMono Nerd Font";  Categoria = "Fonts";  Variant = "JetBrainsMono Nerd Font"; Url = "$nerdFontsUrl/JetBrainsMono.zip"; Modulo = $null; Marcado = $false }
     [PSCustomObject]@{ ID = "Font.CascadiaCode";  Nome = "CascadiaCode Nerd Font";   Categoria = "Fonts";  Variant = "CaskaydiaCove Nerd Font"; Url = "$nerdFontsUrl/CascadiaCode.zip";  Modulo = $null; Marcado = $false }
     [PSCustomObject]@{ ID = "Font.Hack";          Nome = "Hack Nerd Font";           Categoria = "Fonts";  Variant = "Hack Nerd Font";          Url = "$nerdFontsUrl/Hack.zip";          Modulo = $null; Marcado = $false }
-    [PSCustomObject]@{ ID = "Tweak.NodeLTS";      Nome = "Node.js LTS via fnm";      Categoria = "Runtime";  Variant = $null; Url = $null; Modulo = $null; Marcado = $fnmAvailable }
-    [PSCustomObject]@{ ID = "Tweak.pnpm";         Nome = "pnpm activation (requires Node.js LTS above)"; Categoria = "Runtime"; Variant = $null; Url = $null; Modulo = $null; Marcado = $fnmAvailable }
-    [PSCustomObject]@{ ID = "Tweak.OpenCode";     Nome = "OpenCode AI agent (requires Node.js LTS above)"; Categoria = "Runtime"; Variant = $null; Url = $null; Modulo = $null; Marcado = $fnmAvailable }
+    [PSCustomObject]@{ ID = "Tweak.NodeLTS";      Nome = "Node.js LTS (fnm or nvm-windows)"; Categoria = "Runtime";  Variant = $null; Url = $null; Modulo = $null; Marcado = $nodeManagerAvailable }
+    [PSCustomObject]@{ ID = "Tweak.pnpm";         Nome = "pnpm activation (requires Node.js LTS above)"; Categoria = "Runtime"; Variant = $null; Url = $null; Modulo = $null; Marcado = $nodeManagerAvailable }
+    [PSCustomObject]@{ ID = "Tweak.OpenCode";     Nome = "OpenCode AI agent (requires Node.js LTS above)"; Categoria = "Runtime"; Variant = $null; Url = $null; Modulo = $null; Marcado = $nodeManagerAvailable }
     [PSCustomObject]@{ ID = "Module.PSReadLine";      Nome = "Module PSReadLine";     Categoria = "PowerShell"; Variant = $null; Url = $null; Modulo = "PSReadLine";      Marcado = (-not ([bool](Get-Module -ListAvailable -Name PSReadLine -ErrorAction SilentlyContinue))) }
     [PSCustomObject]@{ ID = "Module.TerminalIcons";   Nome = "Module Terminal-Icons"; Categoria = "PowerShell"; Variant = $null; Url = $null; Modulo = "Terminal-Icons";  Marcado = (-not ([bool](Get-Module -ListAvailable -Name Terminal-Icons -ErrorAction SilentlyContinue))) }
     [PSCustomObject]@{ ID = "Module.PSFzf";           Nome = "Module PSFzf";          Categoria = "PowerShell"; Variant = $null; Url = $null; Modulo = "PSFzf";           Marcado = $fzfAvailable -and (-not ([bool](Get-Module -ListAvailable -Name PSFzf -ErrorAction SilentlyContinue))) }
@@ -353,6 +358,31 @@ foreach ($item in $selecionados) {
         "Microsoft.VisualStudioCode.Insiders" {
             winget install --id $item.ID $vscodeArgs
         }
+        "CoreyButler.NVMforWindows" {
+            # Install directly from the official GitHub releases: the winget
+            # community manifest lags behind (currently 1.2.2 while the project
+            # is already on v2.x under nvm-windows/nvm). The v2 setup is built
+            # with Inno Setup, so /VERYSILENT works.
+            $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/nvm-windows/nvm/releases?per_page=20" -UseBasicParsing
+
+            # Latest stable release (pre-releases are skipped)
+            $stableRelease = @($releases | Where-Object { -not $_.prerelease })[0]
+            $setupAsset = $stableRelease.assets | Where-Object { $_.name -like "*-amd64-setup.exe" } | Select-Object -First 1
+
+            if ($null -eq $setupAsset) {
+                Write-Host "WARNING: no amd64 setup asset found in the latest NVM release." -ForegroundColor Yellow
+                continue
+            }
+
+            Write-Host "Downloading $($setupAsset.name) ($($stableRelease.tag_name))..." -ForegroundColor Cyan
+            $setupPath = Join-Path $env:TEMP $setupAsset.name
+            Invoke-WebRequest -Uri $setupAsset.browser_download_url -OutFile $setupPath -UseBasicParsing
+
+            Start-Process -FilePath $setupPath -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+            Remove-Item $setupPath -Force -ErrorAction SilentlyContinue
+
+            Write-Host "NVM for Windows installed successfully!" -ForegroundColor Green
+        }
         "WSL2" {
             # Installs the WSL features and Ubuntu in a single step.
             # The distro finishes its setup on first boot after the reboot.
@@ -376,9 +406,11 @@ foreach ($tweak in ($tweaksSelecionados | Where-Object { $_.ID -like "Font.*" })
     Install-NerdFont -Variant $tweak.Variant -Url $tweak.Url
 }
 
-# 2. Node.js LTS via fnm
+# 2. Node.js LTS via fnm or nvm-windows (whichever manager is available)
 if ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") {
     $fnmCmd = Get-Command fnm -ErrorAction SilentlyContinue
+    $nvmCmd = Get-Command nvm -ErrorAction SilentlyContinue
+
     if ($fnmCmd) {
         Write-Host "`nConfiguring fnm and installing Node.js LTS..." -ForegroundColor Cyan
 
@@ -398,8 +430,21 @@ if ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") {
         fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
 
         Write-Host "Node.js LTS installed successfully!" -ForegroundColor Green
+    } elseif ($nvmCmd) {
+        Write-Host "`nConfiguring nvm-windows and installing Node.js LTS..." -ForegroundColor Cyan
+
+        # Refresh PATH so the newly installed nvm.exe is reachable in this session
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+
+        # Install LTS and switch the symlink to it. nvm-windows requires an
+        # elevated shell to create/update the NVM_SYMLINK junction - the setup
+        # script already runs elevated, so 'nvm use' works here.
+        nvm install lts
+        nvm use lts
+
+        Write-Host "Node.js LTS installed successfully!" -ForegroundColor Green
     } else {
-        Write-Host "WARNING: fnm not found. Node.js must be installed manually." -ForegroundColor Yellow
+        Write-Host "WARNING: Neither fnm nor nvm found. Node.js must be installed manually." -ForegroundColor Yellow
     }
 }
 
