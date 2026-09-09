@@ -14,6 +14,15 @@
 .PARAMETER back
     Pre-selects recommended software for Backend development.
 
+.PARAMETER NoPwsh
+    Skips the PowerShell profile configuration menu; no $PROFILE is written.
+
+.PARAMETER NoApps
+    Skips the apps selection menu; no app installations run.
+
+.PARAMETER NoTweaks
+    Skips the tweaks selection menu; no tweaks are applied.
+
 .PARAMETER help
     Displays this help menu with instructions for using the script.
 
@@ -26,6 +35,12 @@
 param (
     [switch]$front,
     [switch]$back,
+    # Skip the PowerShell profile menu and never write to any $PROFILE
+    [switch]$NoPwsh,
+    # Skip the apps selection menu (menu 1): no app installations run
+    [switch]$NoApps,
+    # Skip the tweaks selection menu (menu 2): no tweaks are applied
+    [switch]$NoTweaks,
     [Alias("h", "?", "-help")]
     [switch]$help
 )
@@ -43,6 +58,9 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     $relaunchArgs = "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
     if ($front) { $relaunchArgs += " -front" }
     if ($back) { $relaunchArgs += " -back" }
+    if ($NoPwsh) { $relaunchArgs += " -NoPwsh" }
+    if ($NoApps) { $relaunchArgs += " -NoApps" }
+    if ($NoTweaks) { $relaunchArgs += " -NoTweaks" }
 
     Start-Process powershell $relaunchArgs -Verb RunAs
     exit
@@ -163,8 +181,13 @@ function Show-TerminalMenu {
     return $marcados
 }
 
-$appMarcados = Show-TerminalMenu -Items $catalogo -Title "INSTALLATION PACKAGE SELECTION"
-$selecionados = @($appMarcados | ForEach-Object { $catalogo[$_] })
+if ($NoApps) {
+    Write-Host "Skipping app installations (-NoApps)." -ForegroundColor Yellow
+    $selecionados = @()
+} else {
+    $appMarcados = Show-TerminalMenu -Items $catalogo -Title "INSTALLATION PACKAGE SELECTION"
+    $selecionados = @($appMarcados | ForEach-Object { $catalogo[$_] })
+}
 
 # ------------------------------------------------------------------------------
 # TWEAKS CATALOG (BUILT DYNAMICALLY)
@@ -183,20 +206,33 @@ function Test-WingetInstalled {
     [bool]($script:installedWingetLines -match $escaped)
 }
 
-$fnmAvailable = ($selecionados.ID -contains "Schniz.fnm") -or (Test-WingetInstalled "Schniz.fnm") -or ([bool](Get-Command fnm -ErrorAction SilentlyContinue))
-$nvmAvailable = ($selecionados.ID -contains "CoreyButler.NVMforWindows") -or (Test-WingetInstalled "CoreyButler.NVMforWindows") -or ([bool](Get-Command nvm -ErrorAction SilentlyContinue))
-$fzfAvailable = ($selecionados.ID -contains "junegunn.fzf") -or (Test-WingetInstalled "junegunn.fzf") -or ([bool](Get-Command fzf -ErrorAction SilentlyContinue))
-$ompAvailable = ($selecionados.ID -contains "JanDeDobbeleer.OhMyPosh") -or (Test-WingetInstalled "JanDeDobbeleer.OhMyPosh") -or ([bool](Get-Command oh-my-posh -ErrorAction SilentlyContinue))
+# Cheap availability checks (Get-Command) always run - they feed the profile
+# menu premarks too. The winget list scan only runs when the tweaks menu
+# (menu 2) is actually shown; selecting apps counts as available otherwise.
+$fnmAvailable = [bool](Get-Command fnm -ErrorAction SilentlyContinue)
+$nvmAvailable = [bool](Get-Command nvm -ErrorAction SilentlyContinue)
+$fzfAvailable = [bool](Get-Command fzf -ErrorAction SilentlyContinue)
+$ompAvailable = [bool](Get-Command oh-my-posh -ErrorAction SilentlyContinue)
+
+if (-not $NoTweaks) {
+    $fnmAvailable = ($selecionados.ID -contains "Schniz.fnm") -or (Test-WingetInstalled "Schniz.fnm") -or $fnmAvailable
+    $nvmAvailable = ($selecionados.ID -contains "CoreyButler.NVMforWindows") -or (Test-WingetInstalled "CoreyButler.NVMforWindows") -or $nvmAvailable
+    $fzfAvailable = ($selecionados.ID -contains "junegunn.fzf") -or (Test-WingetInstalled "junegunn.fzf") -or $fzfAvailable
+    $ompAvailable = ($selecionados.ID -contains "JanDeDobbeleer.OhMyPosh") -or (Test-WingetInstalled "JanDeDobbeleer.OhMyPosh") -or $ompAvailable
+}
 
 # Any Node version manager is enough for the Node.js tweaks to make sense
 $nodeManagerAvailable = $fnmAvailable -or $nvmAvailable
 
 $vscodeMenuScript = Join-Path $PSScriptDir "vscode-context-menu.ps1"
-$vscodeAvailable = ($selecionados.ID -contains "Microsoft.VisualStudioCode") -or
-    ($selecionados.ID -contains "Microsoft.VisualStudioCode.Insiders") -or
-    (Test-WingetInstalled "Microsoft.VisualStudioCode") -or
-    (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") -or
-    (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code Insiders\Code - Insiders.exe")
+$vscodeAvailable = $false
+if (-not $NoTweaks) {
+    $vscodeAvailable = ($selecionados.ID -contains "Microsoft.VisualStudioCode") -or
+        ($selecionados.ID -contains "Microsoft.VisualStudioCode.Insiders") -or
+        (Test-WingetInstalled "Microsoft.VisualStudioCode") -or
+        (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") -or
+        (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code Insiders\Code - Insiders.exe")
+}
 
 
 $nerdFontsUrl = "https://github.com/ryanoasis/nerd-fonts/releases/latest/download"
@@ -216,8 +252,13 @@ $tweaks = @(
     [PSCustomObject]@{ ID = "Tweak.VSCodeMenu";   Nome = "VS Code context menu entries"; Categoria = "Shell";   Variant = $null; Url = $null; Modulo = $null; Marcado = $vscodeAvailable }
 )
 
-$tweakMarcados = Show-TerminalMenu -Items $tweaks -Title "SYSTEM TWEAKS SELECTION"
-$tweaksSelecionados = @($tweakMarcados | ForEach-Object { $tweaks[$_] })
+if ($NoTweaks) {
+    Write-Host "Skipping system tweaks (-NoTweaks)." -ForegroundColor Yellow
+    $tweaksSelecionados = @()
+} else {
+    $tweakMarcados = Show-TerminalMenu -Items $tweaks -Title "SYSTEM TWEAKS SELECTION"
+    $tweaksSelecionados = @($tweakMarcados | ForEach-Object { $tweaks[$_] })
+}
 
 # pnpm requires the Node.js LTS tweak to be selected
 if ($tweaksSelecionados.ID -contains "Tweak.pnpm" -and -not ($tweaksSelecionados.ID -contains "Tweak.NodeLTS")) {
@@ -239,13 +280,109 @@ if ($tweaksSelecionados.ID -contains "Module.PSFzf" -and -not $fzfAvailable) {
     Start-Sleep -Seconds 2
 }
 
-if ($selecionados.Count -eq 0 -and $tweaksSelecionados.Count -eq 0) {
-    Write-Host "`nNo items selected." -ForegroundColor Red
-    exit
+# The execution continues even with nothing selected in menus 1/2: the
+# PowerShell profile menu (3) can still be used (unless -NoPwsh is passed)
+
+# ------------------------------------------------------------------------------
+# 3. POWERSHELL PROFILE SELECTION (third menu)
+# The actual profile writing happens later, during execution, so the
+# confirmation screen can list everything (apps + tweaks + profile blocks).
+# Each generated block is wrapped in start/end markers so the profile is
+# MERGED instead of overwritten: manual configuration placed outside the
+# markers is always preserved as-is. Blocks already present are replaced
+# in-place; unmarked existing content is never touched.
+# ------------------------------------------------------------------------------
+# Modules selected in the tweaks menu drive the profile block premarks
+$selectedModules = @($tweaksSelecionados | Where-Object { $_.ID -like "Module.*" } | ForEach-Object { $_.Modulo })
+
+# Chosen profile block ids (populated by the menu below; empty with -NoPwsh)
+$chosenBlockIds = @()
+
+function Get-ProfileBlock {
+    param ([string]$Id)
+    switch ($Id) {
+        "fnm" {
+            return @'
+# Initialize FNM (Fast Node Manager) environment
+if (Get-Command fnm -ErrorAction SilentlyContinue) {
+    fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+}
+'@
+        }
+        "omp" {
+            return @'
+# Oh My Posh prompt (loaded manually with 'omp')
+$OhMyPoshConfig = '{{OMP_CONFIG_PATH}}'
+function omp {
+    oh-my-posh init pwsh --config $OhMyPoshConfig | Invoke-Expression
+}
+'@
+        }
+        "az" {
+            return @'
+Register-ArgumentCompleter -Native -CommandName az -ScriptBlock {
+    param($commandName, $wordToComplete, $cursorPosition)
+    $completion_file = New-TemporaryFile
+    $env:ARGCOMPLETE_USE_TEMPFILES = 1
+    $env:_ARGCOMPLETE_STDOUT_FILENAME = $completion_file
+    $env:COMP_LINE = $wordToComplete
+    $env:COMP_POINT = $cursorPosition
+    $env:_ARGCOMPLETE = 1
+    $env:_ARGCOMPLETE_SUPPRESS_SPACE = 0
+    $env:_ARGCOMPLETE_IFS = "`n"
+    $env:_ARGCOMPLETE_SHELL = 'powershell'
+    az 2>&1 | Out-Null
+    Get-Content $completion_file | Sort-Object | ForEach-Object {
+        [System.Management.Automation.CompletionResult]::new($_, $_ , "ParameterValue", $_)
+    }
+    Remove-Item $completion_file, Env:\_ARGCOMPLETE_STDOUT_FILENAME, Env:\ARGCOMPLETE_USE_TEMPFILES, Env:\COMP_LINE, Env:\COMP_POINT, Env:\_ARGCOMPLETE, Env:\_ARGCOMPLETE_SUPPRESS_SPACE, Env:\_ARGCOMPLETE_IFS, Env:\_ARGCOMPLETE_SHELL
+}
+'@
+        }
+        "psreadline" {
+            return @'
+Import-Module -Name PSReadLine
+Set-PSReadLineOption -PredictionSource History
+Set-PSReadLineOption -PredictionViewStyle ListView
+Set-PSReadLineOption -EditMode Windows
+Set-PSReadLineOption -MaximumHistoryCount 16384
+Set-PSReadlineKeyHandler -Key Tab -Function MenuComplete
+'@
+        }
+        "terminal-icons" {
+            return "Import-Module -Name Terminal-Icons"
+        }
+        "psfzf" {
+            return @'
+Import-Module -Name PSFzf
+# Bind Ctrl+r to override default PSReadLine reverse history search
+Set-PsFzfOption -PSReadlineChordProvider 'Ctrl+t' -PSReadlineChordReverseHistory 'Ctrl+r'
+'@
+        }
+    }
+    return ""
+}
+
+if (-not $NoPwsh) {
+    $profileBlocks = @(
+        [PSCustomObject]@{ Id = "omp";            Nome = "Oh My Posh theme + omp function";    Categoria = "Prompt";  Marcado = $ompAvailable }
+        [PSCustomObject]@{ Id = "fnm";            Nome = "FNM initialization";                 Categoria = "Runtime"; Marcado = ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") }
+        [PSCustomObject]@{ Id = "psreadline";     Nome = "PSReadLine import + options";        Categoria = "Module";  Marcado = ($selectedModules -contains "PSReadLine") }
+        [PSCustomObject]@{ Id = "terminal-icons"; Nome = "Terminal-Icons import";              Categoria = "Module";  Marcado = ($selectedModules -contains "Terminal-Icons") }
+        [PSCustomObject]@{ Id = "psfzf";          Nome = "PSFzf import + key bindings";        Categoria = "Module";  Marcado = ($selectedModules -contains "PSFzf") }
+        [PSCustomObject]@{ Id = "az";             Nome = "Azure CLI argument completer";       Categoria = "CLI";     Marcado = ([bool](Get-Command az -ErrorAction SilentlyContinue)) }
+    )
+
+    $profileBlockIndices = Show-TerminalMenu -Items $profileBlocks -Title "POWERSHELL PROFILE CONFIGURATION"
+    $chosenBlockIds = @($profileBlockIndices | ForEach-Object { $profileBlocks[$_].Id })
+} else {
+    Write-Host "Skipping PowerShell profile configuration (-NoPwsh)." -ForegroundColor Yellow
 }
 
 # ------------------------------------------------------------------------------
 # CONFIRMATION AND EXECUTION
+# The confirmation runs after ALL menus so the summary covers everything
+# that will be processed: apps, system tweaks and profile blocks.
 # ------------------------------------------------------------------------------
 $precisaWSL = $selecionados.ID -contains "WSL2"
 
@@ -258,6 +395,22 @@ if ($selecionados.Count -gt 0) {
 if ($tweaksSelecionados.Count -gt 0) {
     Write-Host "  System tweaks:" -ForegroundColor Yellow
     $tweaksSelecionados | ForEach-Object { Write-Host "  - [$($_.Categoria)] $($_.Nome)" -ForegroundColor Cyan }
+}
+if (-not $NoPwsh) {
+    $chosenBlocksItems = @($profileBlocks | Where-Object { $chosenBlockIds -contains $_.Id })
+    if ($chosenBlocksItems.Count -gt 0) {
+        Write-Host "  PowerShell profile:" -ForegroundColor Yellow
+        $chosenBlocksItems | ForEach-Object { Write-Host "  - [$($_.Categoria)] $($_.Nome)" -ForegroundColor Cyan }
+    } else {
+        Write-Host "  PowerShell profile: nothing selected (profile untouched)." -ForegroundColor Gray
+    }
+}
+if ($selecionados.Count -eq 0 -and $tweaksSelecionados.Count -eq 0 -and $chosenBlockIds.Count -eq 0) {
+    if ($NoPwsh) {
+        Write-Host "  Nothing to process." -ForegroundColor Gray
+    } else {
+        Write-Host "  No changes selected." -ForegroundColor Gray
+    }
 }
 
 if ($precisaWSL) {
@@ -479,9 +632,8 @@ if ($tweaksSelecionados.ID -contains "Tweak.OpenCode") {
     }
 }
 
-# 4. PowerShell modules (installed into both hosts when PowerShell 7 exists)
-$selectedModules = @($tweaksSelecionados | Where-Object { $_.ID -like "Module.*" } | ForEach-Object { $_.Modulo })
-
+# 4. PowerShell modules (installed into both hosts when PowerShell 7 exists).
+# $selectedModules was already computed during the menu selection phase.
 if ($selectedModules.Count -gt 0) {
     # 4.1 Force TLS 1.2 protocol and strong cryptography for .NET
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -516,119 +668,91 @@ if ($selectedModules.Count -gt 0) {
     }
 }
 
-# 5. PowerShell Profile generation (built only from the selected tweaks)
-if ($selectedModules.Count -gt 0) {
-    Write-Host "Configuring PowerShell profile ($PROFILE)..." -ForegroundColor Cyan
+# 5. Profile merge/write (the selection happened in menu 3; -NoPwsh never writes)
+if (-not $NoPwsh) {
+    if ($chosenBlockIds.Count -gt 0) {
+        # Merge function: preserves content outside markers, replaces marked
+        # regions in-place and appends blocks that are missing. Escapes any
+        # '$' in the new region before regex replace to avoid .NET treating
+        # "$_" etc. as capture-group references.
+        function Merge-ProfileBlock {
+            param ([string]$Path, [string[]]$BlockIds, [string]$OmpPathValue)
 
-    $profileParts = [System.Collections.Generic.List[string]]::new()
+            $content = if (Test-Path $Path) { Get-Content -Raw $Path } else { "" }
 
-    # FNM initialization block (only when the Node.js tweak was selected)
-    if ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") {
-        $profileParts.Add(@"
-# Initialize FNM (Fast Node Manager) environment
-if (Get-Command fnm -ErrorAction SilentlyContinue) {
-    fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
-}
-"@)
-    }
+            foreach ($profileBlock in $profileBlocks) {
+                if (-not ($BlockIds -contains $profileBlock.Id)) { continue }
 
-    if ($ompAvailable) {
-        $profileParts.Add(@"
-# Oh My Posh prompt (loaded manually with 'omp')
-`$OhMyPoshConfig = '$ompProfilePath'
-function omp {
-    oh-my-posh init pwsh --config `$OhMyPoshConfig | Invoke-Expression
-}
-"@)
-    }
+                $markerStart = "# >>> setup-pc: $($profileBlock.Id) >>>"
+                $markerEnd = "# <<< setup-pc: $($profileBlock.Id) <<<"
+                $body = Get-ProfileBlock -Id $profileBlock.Id
+                if ($profileBlock.Id -eq "omp") {
+                    $body = $body.Replace("{{OMP_CONFIG_PATH}}", $OmpPathValue)
+                }
+                $newRegion = "$markerStart`r`n$body`r`n$markerEnd"
+                # Regex replace needs '$' escaped ('$' -> '$$') or .NET treats
+                # "$_" like capture-group references. The append branch must
+                # receive the unescaped region instead.
+                $newRegionEscaped = $newRegion.Replace('$', '$$')
 
-    $profileParts.Add(@"
-Register-ArgumentCompleter -Native -CommandName az -ScriptBlock {
-    param(`$commandName, `$wordToComplete, `$cursorPosition)
-    `$completion_file = New-TemporaryFile
-    `$env:ARGCOMPLETE_USE_TEMPFILES = 1
-    `$env:_ARGCOMPLETE_STDOUT_FILENAME = `$completion_file
-    `$env:COMP_LINE = `$wordToComplete
-    `$env:COMP_POINT = `$cursorPosition
-    `$env:_ARGCOMPLETE = 1
-    `$env:_ARGCOMPLETE_SUPPRESS_SPACE = 0
-    `$env:_ARGCOMPLETE_IFS = "`n"
-    `$env:_ARGCOMPLETE_SHELL = 'powershell'
-    az 2>&1 | Out-Null
-    Get-Content `$completion_file | Sort-Object | ForEach-Object {
-        [System.Management.Automation.CompletionResult]::new(`$_, `$_ , "ParameterValue", `$_)
-    }
-    Remove-Item `$completion_file, Env:\_ARGCOMPLETE_STDOUT_FILENAME, Env:\ARGCOMPLETE_USE_TEMPFILES, Env:\COMP_LINE, Env:\COMP_POINT, Env:\_ARGCOMPLETE, Env:\_ARGCOMPLETE_SUPPRESS_SPACE, Env:\_ARGCOMPLETE_IFS, Env:\_ARGCOMPLETE_SHELL
-}
-"@)
+                $pattern = "(?s)" + [regex]::Escape($markerStart) + "[\s\S]*?" + [regex]::Escape($markerEnd) + "\r?\n?"
 
-    if ($selectedModules -contains "Terminal-Icons") {
-        $profileParts.Add("Import-Module -Name Terminal-Icons")
-    }
+                if ($content -match $pattern) {
+                    $content = [regex]::Replace($content, $pattern, $newRegionEscaped)
+                } else {
+                    if ($content.TrimEnd("`r", "`n") -ne "") {
+                        $content = $content.TrimEnd("`r", "`n") + "`r`n`r`n"
+                    }
+                    $content += $newRegion
+                }
+            }
 
-    if ($selectedModules -contains "PSReadLine") {
-        $profileParts.Add(@"
-Import-Module -Name PSReadLine
-Set-PSReadLineOption -PredictionSource History
-Set-PSReadLineOption -PredictionViewStyle ListView
-Set-PSReadLineOption -EditMode Windows
-Set-PSReadLineOption -MaximumHistoryCount 16384
-Set-PSReadlineKeyHandler -Key Tab -Function MenuComplete
-"@)
-    }
-
-    if ($selectedModules -contains "PSFzf") {
-        $profileParts.Add(@"
-Import-Module -Name PSFzf
-# Bind Ctrl+r to override default PSReadLine reverse history search
-Set-PsFzfOption -PSReadlineChordProvider 'Ctrl+t' -PSReadlineChordReverseHistory 'Ctrl+r'
-"@)
-    }
-
-    $profileContent = ($profileParts -join "`n`n") + "`n"
-
-    # Copy Oh My Posh theme next to the profile when applicable
-    $ompConfigFile = Join-Path $PSScriptDir "montys-mod.omp.json"
-    $userProfileDir = Split-Path -Parent $PROFILE
-
-    if (-not (Test-Path $userProfileDir)) {
-        New-Item -ItemType Directory -Path $userProfileDir -Force | Out-Null
-    }
-
-    $ompConfigFullPath = $null
-    if ($ompAvailable -and (Test-Path $ompConfigFile)) {
-        $targetOmpPath = Join-Path $userProfileDir "montys-mod.omp.json"
-        Copy-Item -Path $ompConfigFile -Destination $targetOmpPath -Force
-        $ompConfigFullPath = $targetOmpPath.Replace('\', '/')
-        Write-Host "File 'montys-mod.omp.json' copied to: $targetOmpPath" -ForegroundColor Green
-    }
-    elseif ($ompAvailable) {
-        Write-Host "WARNING: 'montys-mod.omp.json' not found in '$PSScriptDir'." -ForegroundColor Yellow
-    }
-
-    # Replace the OMP config placeholder with the absolute path
-    $profileContent = $profileContent.Replace('$ompProfilePath', $ompConfigFullPath)
-
-    # Write profile for Windows PowerShell 5.1
-    Set-Content -Path $PROFILE -Value $profileContent -Encoding UTF8 -Force
-    Write-Host "PowerShell profile configured!" -ForegroundColor Green
-
-    # PowerShell 7 uses a separate profile location - apply the same content
-    if (Get-Command pwsh -ErrorAction SilentlyContinue) {
-        $docsDir = [Environment]::GetFolderPath('MyDocuments')
-        $pwshProfileDir = Join-Path $docsDir "PowerShell"
-        if (-not (Test-Path $pwshProfileDir)) {
-            New-Item -ItemType Directory -Path $pwshProfileDir -Force | Out-Null
+            return $content.TrimEnd("`r", "`n") + "`r`n"
         }
 
-        if ($ompConfigFullPath) {
-            Copy-Item -Path $ompConfigFile -Destination (Join-Path $pwshProfileDir "montys-mod.omp.json") -Force
+        # Target profiles:
+        # - session running PowerShell 7 -> write only $PROFILE (already the PS7 one)
+        # - session running Windows PowerShell 5.1 -> write 5.1 $PROFILE + the PS7 one
+        $profileTargets = [System.Collections.Generic.List[string]]::new()
+        if ($PSVersionTable.PSVersion.Major -ge 7) {
+            [void]$profileTargets.Add($PROFILE)
+        } else {
+            [void]$profileTargets.Add($PROFILE)
+
+            $docsDir = [Environment]::GetFolderPath('MyDocuments')
+            [void]$profileTargets.Add((Join-Path $docsDir "PowerShell\Microsoft.PowerShell_profile.ps1"))
         }
 
-        Set-Content -Path (Join-Path $pwshProfileDir "Microsoft.PowerShell_profile.ps1") -Value $profileContent -Encoding UTF8 -Force
-        Write-Host "PowerShell 7 profile configured!" -ForegroundColor Green
+        # Copy the Oh My Posh theme next to every profile dir when the omp
+        # block is selected, resolving the config path per target
+        $ompConfigSourceFile = Join-Path $PSScriptDir "montys-mod.omp.json"
+
+        foreach ($target in $profileTargets) {
+            $targetDir = Split-Path -Parent $target
+            if (-not (Test-Path $targetDir)) {
+                New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+            }
+
+            $ompPathValue = ""
+            if ($chosenBlockIds -contains "omp") {
+                if (Test-Path $ompConfigSourceFile) {
+                    $ompCopy = Join-Path $targetDir "montys-mod.omp.json"
+                    Copy-Item -Path $ompConfigSourceFile -Destination $ompCopy -Force
+                    $ompPathValue = $ompCopy.Replace('\', '/')
+                    Write-Host "File 'montys-mod.omp.json' copied to: $ompCopy" -ForegroundColor Green
+                } else {
+                    Write-Host "WARNING: 'montys-mod.omp.json' not found in '$PSScriptDir'." -ForegroundColor Yellow
+                }
+            }
+
+            $mergedContent = Merge-ProfileBlock -Path $target -BlockIds $chosenBlockIds -OmpPathValue $ompPathValue
+            Set-Content -Path $target -Value $mergedContent -Encoding UTF8 -Force
+            Write-Host "PowerShell profile updated: $target" -ForegroundColor Green
+        }
+
+        Write-Host "PowerShell profile configuration completed!" -ForegroundColor Green
     } else {
-        Write-Host "WARNING: PowerShell 7 not found. Its profile must be configured manually." -ForegroundColor Yellow
+        Write-Host "No profile blocks selected. Profile untouched." -ForegroundColor Yellow
     }
 }
 
