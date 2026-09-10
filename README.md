@@ -12,7 +12,7 @@ Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 ## Usage
 
-The script needs administrative privileges, but you don't have to open an elevated terminal to run it: when started without elevation, the script automatically relaunches itself with administrator rights (accept the UAC prompt). Just run the following command from any PowerShell window:
+The script works in any PowerShell window. When an admin account is available, the script automatically relaunches itself elevated (accept the UAC prompt). Running from a standard user also works: elevation-only items (machine-wide installs such as Git/NVM/DBeaver/.NET/Teams, Nerd Fonts and the VS Code context menu) show up disabled (with a [*] marker) and everything else runs normally - PowerShell modules install with `-Scope CurrentUser` in that case:
 
 ```powershell
 .\setup-win.ps1

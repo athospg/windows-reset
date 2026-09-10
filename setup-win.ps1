@@ -7,6 +7,9 @@
     WSL2 with Ubuntu via interactive terminal menus. Three menus drive the
     flow: apps installation, system tweaks, and PowerShell profile blocks.
     Helper code lives in the 'invoke/' folder and is dot-sourced below.
+    The script self-elevates when an admin account is available; running
+    from a standard user works too, with elevation-only items (machine-wide
+    installs, Nerd Fonts, VS Code context menu) disabled in the menus.
 
 .PARAMETER front
     Pre-selects recommended software for Frontend development.
@@ -56,11 +59,19 @@ if ($help) {
     exit
 }
 
-# 1. Ensure Administrator privileges
-# Relaunch keeps the window open (-NoExit) so errors don't vanish instantly.
-# Only pass flags when true: PowerShell 5.1's -File mode cannot convert
-# the string "False" into a [switch] parameter bound with ":$false".
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+# 1. Elevation strategy
+# - Already elevated: run as-is (the -ElevatedFor guard below only applies
+#   when this process was spawned by the self-elevation relaunch).
+# - Running as an admin-group user: relaunch elevated (same user guaranteed).
+# - Standard user: DON'T elevate. The menus stay available with the
+#   elevation-only items disabled (fonts, machine-wide installs, HKCR
+#   tweaks...) and PowerShell modules install with -Scope CurrentUser.
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if ($isAdmin) {
+    # Relaunch keeps the window open (-NoExit) so errors don't vanish instantly.
+    # Only pass flags when true: PowerShell 5.1's -File mode cannot convert
+    # the string "False" into a [switch] parameter bound with ":$false".
     $relaunchArgs = "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
     $relaunchArgs += " -ElevatedFor `"$env:USERNAME`""
     if ($front) { $relaunchArgs += " -front" }
@@ -71,12 +82,16 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 
     Start-Process powershell $relaunchArgs -Verb RunAs
     exit
+} else {
+    Write-Host "Running WITHOUT elevation: items that require administrator rights" -ForegroundColor Yellow
+    Write-Host "are disabled in the menus (marked [*] with [✗]); everything else works normally." -ForegroundColor Yellow
 }
 
-# Guard: the elevated session must belong to the same user that launched the
-# script. Per-user installs ($LOCALAPPDATA, $PROFILE, npm/fnm globals) would
-# otherwise land on another account's profile (`-ElevatedFor` is empty when
-# the script was started already elevated, in which case we accept the caller).
+# Guard: the elevated session (spawned by the self-elevation relaunch above)
+# must belong to the same user that launched the script. Per-user installs
+# ($LOCALAPPDATA, $PROFILE, npm/fnm globals) would otherwise land on another
+# account's profile. Running already elevated without a relaunch skips this
+# check (-ElevatedFor empty).
 if ($ElevatedFor -and $env:USERNAME -ne $ElevatedFor) {
     Write-Host @"
 
@@ -108,6 +123,13 @@ $vscodeMenuScript = Join-Path $PSScriptDir "vscode-context-menu.ps1"
 # ------------------------------------------------------------------------------
 $catalogo = Get-AppCatalog
 
+# Without elevation, disable every item in the catalogs that requires admin
+if (-not $isAdmin) {
+    foreach ($item in $catalogo) {
+        $item | Add-Member -NotePropertyName Disabled -NotePropertyValue $item.NeedsAdmin -Force
+    }
+}
+
 # Pre-selection flags
 for ($i = 0; $i -lt $catalogo.Count; $i++) {
     $item = $catalogo[$i]
@@ -138,6 +160,14 @@ $fzfAvailable = $availability.Fzf
 $ompAvailable = $availability.Omp
 
 $tweaks = New-TweakCatalog -NodeManagerAvailable $availability.NodeManager -FzfAvailable $availability.Fzf -VscodeAvailable $availability.Vscode
+
+# Without elevation, disable the tweaks that require admin (fonts write to
+# HKLM; the VS Code context menu tweak writes to HKCR)
+if (-not $isAdmin) {
+    foreach ($item in $tweaks) {
+        $item | Add-Member -NotePropertyName Disabled -NotePropertyValue $item.NeedsAdmin -Force
+    }
+}
 
 if ($NoTweaks) {
     Write-Host "Skipping system tweaks (-NoTweaks)." -ForegroundColor Yellow
@@ -421,17 +451,17 @@ if ($selectedModules.Count -gt 0) {
     Import-PackageProvider -Name NuGet -ErrorAction SilentlyContinue
     Set-PSRepository -Name 'PSGallery' -InstallationPolicy Trusted -ErrorAction SilentlyContinue
 
-    # 4.4 Install PowerShell Modules silently (Windows PowerShell 5.1 scope)
+    # 4.4 Install PowerShell Modules silently (current user scope - no elevation needed)
     foreach ($mod in $selectedModules) {
         Write-Host "Installing module: $mod..." -ForegroundColor Cyan
-        Install-Module -Name $mod -Force -SkipPublisherCheck -AllowClobber -Scope AllUsers -Confirm:$false
+        Install-Module -Name $mod -Force -SkipPublisherCheck -AllowClobber -Scope CurrentUser -Confirm:$false
     }
 
     # 4.5 Install the same modules into PowerShell 7's module directory
     if (Get-Command pwsh -ErrorAction SilentlyContinue) {
         foreach ($mod in $selectedModules) {
             Write-Host "Installing module for PowerShell 7: $mod..." -ForegroundColor Cyan
-            pwsh -NoProfile -Command "Install-Module -Name $mod -Force -SkipPublisherCheck -AllowClobber -Scope AllUsers -Confirm:`$false"
+            pwsh -NoProfile -Command "Install-Module -Name $mod -Force -SkipPublisherCheck -AllowClobber -Scope CurrentUser -Confirm:`$false"
         }
     }
 }
