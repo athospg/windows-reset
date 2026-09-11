@@ -177,17 +177,19 @@ if ($NoTweaks) {
     $tweaksSelecionados = @($tweakMarcados | ForEach-Object { $tweaks[$_] })
 }
 
-# pnpm requires the Node.js LTS tweak to be selected
-if ($tweaksSelecionados.ID -contains "Tweak.pnpm" -and -not ($tweaksSelecionados.ID -contains "Tweak.NodeLTS")) {
+# pnpm requires a Node.js runtime: either the Node.js LTS tweak or an
+# already installed node (system, fnm or nvm-managed)
+if ($tweaksSelecionados.ID -contains "Tweak.pnpm" -and -not ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") -and -not (Test-NodeAvailable)) {
     $tweaksSelecionados = @($tweaksSelecionados | Where-Object { $_.ID -ne "Tweak.pnpm" })
-    Write-Host "`nNOTE: pnpm was skipped because Node.js LTS was not selected." -ForegroundColor Yellow
+    Write-Host "`nNOTE: pnpm was skipped because Node.js LTS was not selected and no Node.js runtime was found." -ForegroundColor Yellow
     Start-Sleep -Seconds 2
 }
 
-# OpenCode requires Node.js/npm (installed via the Node.js LTS tweak)
-if ($tweaksSelecionados.ID -contains "Tweak.OpenCode" -and -not ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") -and -not ($fnmAvailable -and [bool](Get-Command npm -ErrorAction SilentlyContinue))) {
+# OpenCode requires Node.js/npm (installed via the Node.js LTS tweak or
+# already present on the system)
+if ($tweaksSelecionados.ID -contains "Tweak.OpenCode" -and -not ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") -and -not (Test-NodeAvailable)) {
     $tweaksSelecionados = @($tweaksSelecionados | Where-Object { $_.ID -ne "Tweak.OpenCode" })
-    Write-Host "`nNOTE: OpenCode was skipped because Node.js/npm was not selected or found." -ForegroundColor Yellow
+    Write-Host "`nNOTE: OpenCode was skipped because Node.js LTS was not selected and no Node.js runtime was found." -ForegroundColor Yellow
     Start-Sleep -Seconds 2
 }
 
@@ -356,6 +358,11 @@ foreach ($tweak in ($tweaksSelecionados | Where-Object { $_.ID -like "Font.*" })
 }
 
 # 2. Node.js LTS via fnm or nvm-windows (whichever manager is available)
+# Discreet notice when a Node runtime already exists but the LTS tweak
+# was explicitly selected: it will be installed/updated anyway
+if ($tweaksSelecionados.ID -contains "Tweak.NodeLTS" -and (Test-NodeAvailable)) {
+    Write-Host "`nNOTE: a Node.js runtime is already present; the LTS tweak will install/update the LTS version anyway." -ForegroundColor Yellow
+}
 if ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") {
     $fnmCmd = Get-Command fnm -ErrorAction SilentlyContinue
     $nvmCmd = Get-Command nvm -ErrorAction SilentlyContinue
@@ -399,23 +406,44 @@ if ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") {
 # Remember which Node manager was used for the OpenCode step below
 $fnmCmd = if ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") { Get-Command fnm -ErrorAction SilentlyContinue } else { $null }
 
-# 3. pnpm via Corepack (only meaningful after Node.js was installed)
+# 3. pnpm via Corepack (only meaningful after Node.js was installed or
+#    was already present on the system)
 if ($tweaksSelecionados.ID -contains "Tweak.pnpm") {
     if (Get-Command corepack -ErrorAction SilentlyContinue) {
         Write-Host "Enabling and activating pnpm via Corepack..." -ForegroundColor Cyan
         corepack enable
         corepack prepare pnpm@latest --activate
         Write-Host "pnpm activated successfully!" -ForegroundColor Green
+    } elseif ((Test-NodeAvailable) -and ($fnmCmd = Get-Command fnm -ErrorAction SilentlyContinue)) {
+        # Node exists via fnm but corepack is not on the session PATH yet:
+        # route the corepack commands through the fnm environment directly
+        Write-Host "corepack is not on the session PATH; routing via fnm exec..." -ForegroundColor Cyan
+        & fnm exec -- corepack enable
+        & fnm exec -- corepack prepare pnpm@latest --activate
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "pnpm activated successfully!" -ForegroundColor Green
+        } else {
+            Write-Host "WARNING: Corepack activation via fnm failed. Please install pnpm manually later." -ForegroundColor Yellow
+        }
     } else {
         Write-Host "WARNING: Corepack not found. Please install pnpm manually later." -ForegroundColor Yellow
     }
 }
 
-# 3.5 OpenCode AI agent via npm (requires Node.js installed by the tweak above)
+# 3.5 OpenCode AI agent via npm (requires a Node.js runtime: the LTS tweak
+# above or an already installed runtime)
 if ($tweaksSelecionados.ID -contains "Tweak.OpenCode") {
-    # Re-init the fnm environment so npm stays reachable even if the tweak
-    # above ran earlier (its multishell PATH entry may have been rebuilt).
-    if ($fnmCmd) {
+    if (-not ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") -and (Test-NodeAvailable)) {
+        Write-Host "Using the Node.js runtime already present on the system." -ForegroundColor Gray
+        if ([bool](Get-Command fnm -ErrorAction SilentlyContinue)) {
+            # Re-init the fnm environment so npm joins the session PATH
+            fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+        } else {
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        }
+    } elseif ($fnmCmd) {
+        # Re-init the fnm environment so npm stays reachable even if the
+        # tweak above ran earlier (its multishell PATH entry may have changed)
         fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
     } else {
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
@@ -425,6 +453,15 @@ if ($tweaksSelecionados.ID -contains "Tweak.OpenCode") {
         Write-Host "Installing OpenCode AI agent (npm install -g opencode-ai@latest)..." -ForegroundColor Cyan
         npm install -g opencode-ai@latest
         Write-Host "OpenCode installed successfully! Run it with 'opencode'." -ForegroundColor Green
+    } elseif ([bool](Get-Command fnm -ErrorAction SilentlyContinue)) {
+        # Last resort: run npm through the fnm environment directly
+        Write-Host "npm is not on the session PATH; running via fnm exec..." -ForegroundColor Cyan
+        & fnm exec -- npm install -g opencode-ai@latest
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "OpenCode installed successfully! Run it with 'opencode'." -ForegroundColor Green
+        } else {
+            Write-Host "WARNING: npm install via fnm failed. Install OpenCode manually with: npm install -g opencode-ai@latest" -ForegroundColor Yellow
+        }
     } else {
         Write-Host "WARNING: npm not found in PATH. Install OpenCode manually with: npm install -g opencode-ai@latest" -ForegroundColor Yellow
     }
