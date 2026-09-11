@@ -20,7 +20,7 @@ function Get-AppCatalog {
         [PSCustomObject]@{ ID = "Git.Git";                           Nome = "Git (all users)";               Categoria = "Dev"; NeedsAdmin = $true;  Marcado = $false; Front = $true;  Back = $true  }
         [PSCustomObject]@{ ID = "Fork.Fork";                         Nome = "Fork (Git Client)";             Categoria = "Dev"; NeedsAdmin = $false; Marcado = $false; Front = $true;  Back = $true  }
         [PSCustomObject]@{ ID = "Schniz.fnm";                        Nome = "fnm (Fast Node Manager)";       Categoria = "Dev"; NeedsAdmin = $false; Marcado = $false; Front = $true;  Back = $true  }
-        [PSCustomObject]@{ ID = "CoreyButler.NVMforWindows";         Nome = "NVM for Windows (all users)";   Categoria = "Dev"; NeedsAdmin = $true;  Marcado = $false; Front = $false; Back = $false }
+        [PSCustomObject]@{ ID = "CoreyButler.NVMforWindows";         Nome = "NVM for Windows";               Categoria = "Dev"; NeedsAdmin = $false; Marcado = $false; Front = $false; Back = $false }
         [PSCustomObject]@{ ID = "Microsoft.VisualStudioCode.Insiders"; Nome = "VS Code Insiders";            Categoria = "Dev"; NeedsAdmin = $false; Marcado = $false; Front = $true;  Back = $true  }
         [PSCustomObject]@{ ID = "Microsoft.VisualStudioCode";        Nome = "VS Code";                       Categoria = "Dev"; NeedsAdmin = $false; Marcado = $false; Front = $false; Back = $false }
         [PSCustomObject]@{ ID = "SUSE.RancherDesktop";               Nome = "Rancher Desktop";               Categoria = "Dev"; NeedsAdmin = $false; Marcado = $false; Front = $false; Back = $true  }

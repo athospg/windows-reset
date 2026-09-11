@@ -392,9 +392,9 @@ if ($tweaksSelecionados.ID -contains "Tweak.NodeLTS") {
         # Refresh PATH so the newly installed nvm.exe is reachable in this session
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
-        # Install LTS and switch the symlink to it. nvm-windows requires an
-        # elevated shell to create/update the NVM_SYMLINK junction - the setup
-        # script already runs elevated, so 'nvm use' works here.
+        # Install LTS and switch active version. nvm-windows v2 defaults to
+        # shim mode (no symlink), so no elevation is needed; the installer is
+        # per-user by design (PrivilegesRequired=lowest).
         nvm install lts
         nvm use lts
 

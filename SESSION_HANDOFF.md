@@ -53,7 +53,7 @@ Flags: `-front`, `-back`, `-NoApps`, `-NoTweaks`, `-NoPwsh`, hidden `-ElevatedFo
 ## Key decisions (do not silently change)
 
 1. **Elevation strategy**: admin user -> self-relaunch elevated with guard `-ElevatedFor` (aborts if UAC elevates as a DIFFERENT admin account; per-user installs would land on the wrong profile). Standard user -> no elevation; admin-only items are disabled (shown `[✗]` dark red, Space no-op) via `NeedsAdmin`/`Disabled` properties on catalog rows.
-2. **NeedsAdmin = $true** items: Git, NVM, DBeaver, .NET SDK, Teams, WSL2, all Font tweaks, Tweak.VSCodeMenu. All the rest are per-user and work un-elevated. Modules use `-Scope CurrentUser` **always** (decision taken; not AllUsers).
+2. **NeedsAdmin = $true** items: Git, DBeaver, .NET SDK, Teams, WSL2, all Font tweaks, Tweak.VSCodeMenu. NVM for Windows is **per-user** as of nvm-windows v2 (`PrivilegesRequired=lowest` in the Inno installer; HKCU env vars, shim mode — no symlink/elevation needed; verified in `nvm-windows/nvm` `installer/setup.iss`). All the rest are per-user and work un-elevated. Modules use `-Scope CurrentUser` **always** (decision taken; not AllUsers).
 3. **Profile merge by markers** `# >>> setup-pc: <id> >>>` / `<<<`: replaces marked regions in-place, appends missing blocks, NEVER touches content outside markers (user's manual config is preserved). `[regex]::Replace` needs `'$$'` escaping; the **append** branch must use the UN-escaped region (past bug: `$$OhMyPoshConfig` written to file).
 4. **VS Code installs silently** with `/MERGETASKS="!runcode,addcontextmenufiles,addcontextmenufolders,associatewithfiles,addtopath"` — task names are identical for stable/Insiders (no "insiders" suffix; earlier bug). Context menu entries come exclusively from `vscode-context-menu.ps1`, never from the installer.
 5. **Node-dependent tweaks (pnpm/OpenCode)** are allowed when `Tweak.NodeLTS` selected **OR** `Test-NodeAvailable` (memoized: `npm -v` direct probe -> `fnm exec -- npm -v` -> `nvm current`). Root cause that required this: fnm injects its multishell PATH only during execution (after guards), so `Get-Command npm` lies at menu time.
@@ -79,7 +79,7 @@ Flags: `-front`, `-back`, `-NoApps`, `-NoTweaks`, `-NoPwsh`, hidden `-ElevatedFo
 
 - Working state on the main branch; tested by the user on real Windows runs (menus, NVM direct install, elevation guard, OpenCode guard with pre-existing Node).
 - `SESSION_HANDOFF.md` (this file) committed alongside the work.
-- Recent commits: `8fbb445` Node-dependent tweaks with existing runtime; `403b7ce` non-privileged runs; `8485009` PowerToys + wrong-user guard; `dda41fe` invoke/ module split.
+- Recent commits: `8fbb445` Node-dependent tweaks with existing runtime; `403b7ce` non-privileged runs; `8485009` PowerToys + wrong-user guard; `dda41fe` invoke/ module split. Latest change: NVM item made per-user (NeedsAdmin=false) after checking the v2 installer source.
 
 ## Next steps (backlog, not decided)
 

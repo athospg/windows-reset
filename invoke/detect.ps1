@@ -97,7 +97,7 @@ function Test-NodeAvailable {
         $available = ($LASTEXITCODE -eq 0)
     }
 
-    # 3. nvm-windows-managed node (symlink PATH entry on machine PATH)
+    # 3. nvm-windows-managed node (nvm current reports the active version)
     if (-not $available -and [bool](Get-Command nvm -ErrorAction SilentlyContinue)) {
         $current = & nvm current 2>$null
         $available = ($LASTEXITCODE -eq 0 -and $current -and ($current -join "").Trim() -notmatch "^(none|inactive|\s)*$")
