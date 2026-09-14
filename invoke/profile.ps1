@@ -68,6 +68,22 @@ Set-PSReadlineKeyHandler -Key Tab -Function MenuComplete
 Import-Module -Name PSFzf
 # Bind Ctrl+r to override default PSReadLine reverse history search
 Set-PsFzfOption -PSReadlineChordProvider 'Ctrl+t' -PSReadlineChordReverseHistory 'Ctrl+r'
+
+$env:FZF_DEFAULT_OPTS = "--style full --height 100% `
+    --color 'info:#ffb86c,prompt:#50fa7b,pointer:#ff79c6' `
+    --color 'marker:#ff79c6,spinner:#ffb86c,header:#6272a4' `
+    --color 'border:#aaaaaa,label:#cccccc' `
+    --color 'preview-border:#9999cc,preview-label:#ccccff' `
+    --color 'list-border:#669966,list-label:#99cc99' `
+    --color 'input-border:#996666,input-label:#ffcccc' `
+    --color 'header-border:#6699cc,header-label:#ffcccc'"
+
+if (Get-Command bat -ErrorAction SilentlyContinue) {
+    $env:FZF_CTRL_T_OPTS = "--preview 'if exist {} (bat --color=always --style=plain {}) else (echo Diretorio)'"
+} else {
+    $env:FZF_CTRL_T_OPTS = "--preview 'if exist {} (type {}) else (echo Diretorio)'"
+}
+$env:FZF_CTRL_R_OPTS = "--prompt 'Histórico > '"
 '@
         }
     }

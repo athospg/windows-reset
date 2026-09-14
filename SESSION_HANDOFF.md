@@ -79,7 +79,7 @@ Flags: `-front`, `-back`, `-NoApps`, `-NoTweaks`, `-NoPwsh`, hidden `-ElevatedFo
 
 - Working state on the main branch; tested by the user on real Windows runs (menus, NVM direct install, elevation guard, OpenCode guard with pre-existing Node).
 - `SESSION_HANDOFF.md` (this file) committed alongside the work.
-- Recent commits: `8fbb445` Node-dependent tweaks with existing runtime; `403b7ce` non-privileged runs; `8485009` PowerToys + wrong-user guard; `dda41fe` invoke/ module split. Latest change: NVM item made per-user (NeedsAdmin=false) after checking the v2 installer source.
+- Recent commits: `8fbb445` Node-dependent tweaks with existing runtime; `403b7ce` non-privileged runs; `8485009` PowerToys + wrong-user guard; `dda41fe` invoke/ module split. Latest changes: NVM per-user (NeedsAdmin=false, v2 installer is PrivilegesRequired=lowest); new winget app `sharkdp.bat`; PSFzf profile block got fzf styling + Ctrl+t preview via `bat` (runtime `Get-Command bat` fallback to `type`).
 
 ## Next steps (backlog, not decided)
 

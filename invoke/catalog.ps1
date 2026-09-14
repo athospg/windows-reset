@@ -17,6 +17,7 @@ function Get-AppCatalog {
         [PSCustomObject]@{ ID = "Microsoft.WindowsTerminal";         Nome = "Windows Terminal";              Categoria = "CLI"; NeedsAdmin = $false; Marcado = $false; Front = $false; Back = $false }
         [PSCustomObject]@{ ID = "JanDeDobbeleer.OhMyPosh";           Nome = "Oh My Posh";                    Categoria = "CLI"; NeedsAdmin = $false; Marcado = $false; Front = $true;  Back = $true  }
         [PSCustomObject]@{ ID = "junegunn.fzf";                      Nome = "fzf (Fuzzy Finder)";            Categoria = "CLI"; NeedsAdmin = $false; Marcado = $false; Front = $true;  Back = $true  }
+        [PSCustomObject]@{ ID = "sharkdp.bat";                       Nome = "bat (cat alternative)";         Categoria = "CLI"; NeedsAdmin = $false; Marcado = $false; Front = $false; Back = $true  }
         [PSCustomObject]@{ ID = "Git.Git";                           Nome = "Git (all users)";               Categoria = "Dev"; NeedsAdmin = $true;  Marcado = $false; Front = $true;  Back = $true  }
         [PSCustomObject]@{ ID = "Fork.Fork";                         Nome = "Fork (Git Client)";             Categoria = "Dev"; NeedsAdmin = $false; Marcado = $false; Front = $true;  Back = $true  }
         [PSCustomObject]@{ ID = "Schniz.fnm";                        Nome = "fnm (Fast Node Manager)";       Categoria = "Dev"; NeedsAdmin = $false; Marcado = $false; Front = $true;  Back = $true  }
