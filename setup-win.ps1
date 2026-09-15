@@ -60,15 +60,18 @@ if ($help) {
 }
 
 # 1. Elevation strategy
-# - Already elevated: run as-is (the -ElevatedFor guard below only applies
-#   when this process was spawned by the self-elevation relaunch).
-# - Running as an admin-group user: relaunch elevated (same user guaranteed).
+# - Running as an admin-group user (and NOT already the relaunched child):
+#   relaunch elevated (same user requested via -ElevatedFor).
+# - Otherwise (already elevated, either via the relaunch or manually): run
+#   as-is. IMPORTANT: IsInRole reports the EFFECTIVE token, so the relaunched
+#   process is still "admin" - the loop must be broken by the ElevatedFor
+#   guard, otherwise the script relaunches itself infinitely.
 # - Standard user: DON'T elevate. The menus stay available with the
 #   elevation-only items disabled (fonts, machine-wide installs, HKCR
 #   tweaks...) and PowerShell modules install with -Scope CurrentUser.
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-if ($isAdmin) {
+if ($isAdmin -and -not $ElevatedFor) {
     # Relaunch keeps the window open (-NoExit) so errors don't vanish instantly.
     # Only pass flags when true: PowerShell 5.1's -File mode cannot convert
     # the string "False" into a [switch] parameter bound with ":$false".
