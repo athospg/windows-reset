@@ -59,19 +59,38 @@ if ($help) {
     exit
 }
 
-# 1. Elevation strategy
-# - Running as an admin-group user (and NOT already the relaunched child):
-#   relaunch elevated (same user requested via -ElevatedFor).
-# - Otherwise (already elevated, either via the relaunch or manually): run
-#   as-is. IMPORTANT: IsInRole reports the EFFECTIVE token, so the relaunched
-#   process is still "admin" - the loop must be broken by the ElevatedFor
-#   guard, otherwise the script relaunches itself infinitely.
-# - Standard user: DON'T elevate. The menus stay available with the
+# 1. Elevation strategy - two distinct flags are needed because
+# IsInRole(Administrator) reflects the EFFECTIVE token: a normal terminal
+# of an admin-group user runs with a FILTERED token (Administrators SID is
+# deny-only), so IsInRole is $false there.
+# - $isElevated: token can actually perform admin operations right now.
+#   Drives the disabled state of NeedsAdmin items (lines farther below).
+# - $isAdminMember: user belongs to the Administrators group (SID
+#   S-1-5-32-544, still present in the filtered token). Drives the
+#   self-elevation relaunch.
+# Relaunch rules:
+# - Admin member + non-elevated terminal -> relaunch elevated (UAC).
+# - Already elevated (via relaunch or manually, -ElevatedFor set) -> run
+#   as-is, no further relaunch.
+# - Standard user -> DON'T elevate. The menus stay available with the
 #   elevation-only items disabled (fonts, machine-wide installs, HKCR
 #   tweaks...) and PowerShell modules install with -Scope CurrentUser.
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$identity      = [Security.Principal.WindowsIdentity]::GetCurrent()
+$isElevated    = (New-Object Security.Principal.WindowsPrincipal($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-if ($isAdmin -and -not $ElevatedFor) {
+# Membership check: WindowsIdentity.Groups is NOT reliable for deny-only
+# SIDs on a filtered token (the group may be omitted), so read the token
+# groups the same way the OS reports them: `whoami /groups` lists
+# S-1-5-32-544 with a "deny only" attribute for admin members running
+# un-elevated. Matching the raw SID string keeps this locale-independent.
+# The Groups fallback covers environments where whoami is unavailable.
+$adminSidText  = 'S-1-5-32-544'
+$isAdminMember = [bool](whoami /groups 2>$null | Select-String $adminSidText)
+if (-not $isAdminMember) {
+    $isAdminMember = [bool]($identity.Groups | Where-Object { $_.Equals((New-Object Security.Principal.SecurityIdentifier($adminSidText))) })
+}
+
+if ($isAdminMember -and -not $isElevated -and -not $ElevatedFor) {
     # Relaunch keeps the window open (-NoExit) so errors don't vanish instantly.
     # Only pass flags when true: PowerShell 5.1's -File mode cannot convert
     # the string "False" into a [switch] parameter bound with ":$false".
@@ -83,9 +102,15 @@ if ($isAdmin -and -not $ElevatedFor) {
     if ($NoApps) { $relaunchArgs += " -NoApps" }
     if ($NoTweaks) { $relaunchArgs += " -NoTweaks" }
 
-    Start-Process powershell $relaunchArgs -Verb RunAs
-    exit
-} else {
+    try {
+        Start-Process powershell $relaunchArgs -Verb RunAs
+        exit
+    } catch {
+        # UAC declined or failed: keep executing un-elevated instead of dying
+        Write-Host "UAC elevation was declined or failed; continuing WITHOUT elevation." -ForegroundColor Yellow
+    }
+}
+if (-not $isElevated) {
     Write-Host "Running WITHOUT elevation: items that require administrator rights" -ForegroundColor Yellow
     Write-Host "are disabled in the menus (marked [*] with [✗]); everything else works normally." -ForegroundColor Yellow
 }
@@ -126,8 +151,9 @@ $vscodeMenuScript = Join-Path $PSScriptDir "vscode-context-menu.ps1"
 # ------------------------------------------------------------------------------
 $catalogo = Get-AppCatalog
 
-# Without elevation, disable every item in the catalogs that requires admin
-if (-not $isAdmin) {
+# Without elevation (effective token), disable every item in the catalogs
+# that requires admin
+if (-not $isElevated) {
     foreach ($item in $catalogo) {
         $item | Add-Member -NotePropertyName Disabled -NotePropertyValue $item.NeedsAdmin -Force
     }
@@ -164,9 +190,9 @@ $ompAvailable = $availability.Omp
 
 $tweaks = New-TweakCatalog -NodeManagerAvailable $availability.NodeManager -FzfAvailable $availability.Fzf -VscodeAvailable $availability.Vscode
 
-# Without elevation, disable the tweaks that require admin (fonts write to
-# HKLM; the VS Code context menu tweak writes to HKCR)
-if (-not $isAdmin) {
+# Without elevation (effective token), disable the tweaks that require admin
+# (fonts write to HKLM; the VS Code context menu tweak writes to HKCR)
+if (-not $isElevated) {
     foreach ($item in $tweaks) {
         $item | Add-Member -NotePropertyName Disabled -NotePropertyValue $item.NeedsAdmin -Force
     }
