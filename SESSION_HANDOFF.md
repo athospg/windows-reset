@@ -22,7 +22,7 @@ Authoritative technical working memory for `windows-reset`. Read this at the sta
 setup-win.ps1                  # orchestrator: param/elevation strategy, menus 1-3, confirmation, execution (~500 lines)
 invoke/
   ui.ps1                       # Show-TerminalMenu TUI (supports Disabled items: [✗], not toggable)
-  catalog.ps1                  # Get-AppCatalog (menu 1) + New-TweakCatalog (menu 2); NeedsAdmin flags; no selection logic
+  catalog.ps1                  # Get-AppCatalog (menu 1) + New-TweakCatalog (menu 2); NeedsAdmin flags, Scope="user"; no selection logic
   detect.ps1                   # Test-WingetInstalled (memoized 'winget list') + Get-InstalledAvailability + Test-NodeAvailable (memoized)
   fonts.ps1                    # Install-NerdFont (GitHub release zip -> Shell COM install, system-wide)
   profile.ps1                  # Get-ProfileBlock / Merge-ProfileBlock / Update-PowerShellProfiles (marker-based merge)
@@ -43,17 +43,18 @@ Flags: `-front`, `-back`, `-NoApps`, `-NoTweaks`, `-NoPwsh`, hidden `-ElevatedFo
 
 ## Quick reference (where to change what)
 
-- Menu items/pre-marks: `invoke/catalog.ps1` (rows have `NeedsAdmin`; `Marcado` is set by flags/availability functions in the main script)
+- Menu items/pre-marks: `invoke/catalog.ps1` (rows have `NeedsAdmin` and optional `Scope="user"`; `Marcado` is set by flags/availability functions in the main script)
 - Availability detection: `invoke/detect.ps1` (`Get-InstalledAvailability`, `Test-NodeAvailable`)
 - Menu rendering/disabled items: `invoke/ui.ps1`
 - Profile blocks content/markers/merge: `invoke/profile.ps1`; menu 3 pre-marks & guard: `setup-win.ps1` ("MENU 3" section)
-- VS Code silent override + NVM direct install: `setup-win.ps1` app switch
+- VS Code silent override, NVM direct install, `--scope user` handling: `setup-win.ps1` app switch
 - Skip flags (`-NoApps/-NoTweaks/-NoPwsh`) and self-elevation: top of `setup-win.ps1`
 
 ## Key decisions (do not silently change)
 
 1. **Elevation strategy**: two flags, because `IsInRole(Administrator)` reflects the EFFECTIVE token (a normal terminal of an admin-group user has a FILTERED token -> IsInRole false; an already-elevated session -> true; this root-caused both the "never elevates" and the earlier "infinite relaunch" bugs). `$isAdminMember` (membership of SID S-1-5-32-544) drives the self-elevation relaunch: `if ($isAdminMember -and -not $isElevated -and -not $ElevatedFor)`. Membership detection: `whoami /groups` matched against the raw SID string (locale-independent, lists deny-only entries on filtered tokens) with a `WindowsIdentity.Groups` fallback — `.Groups` alone was NOT reliable for deny-only SIDs (real-run bug: admin member, no elevation attempt). Relaunch is wrapped in try/catch: a declined UAC continues un-elevated instead of crashing. `$isElevated` (IsInRole) drives the `Disabled` state of `NeedsAdmin` rows. Relaunch passes `-ElevatedFor` (aborts if UAC elevates as a DIFFERENT admin account; per-user installs would land on the wrong profile); the relaunch is also gated on `-not $ElevatedFor` as belt-and-suspenders against loops. Standard user -> no elevation; admin-only items are disabled (shown `[✗]` dark red, Space no-op) via `NeedsAdmin`/`Disabled` properties on catalog rows.
-2. **NeedsAdmin = $true** items: Git, DBeaver, .NET SDK, Teams, WSL2, all Font tweaks, Tweak.VSCodeMenu. NVM for Windows is **per-user** as of nvm-windows v2 (`PrivilegesRequired=lowest` in the Inno installer; HKCU env vars, shim mode — no symlink/elevation needed; verified in `nvm-windows/nvm` `installer/setup.iss`). All the rest are per-user and work un-elevated. Modules use `-Scope CurrentUser` **always** (decision taken; not AllUsers).
+2. **NeedsAdmin = $true** items: the Visual C++ redistributables (2015+/2013/2012, x64+x86), .NET Desktop Runtime 8 and 10, Eclipse Temurin JRE 21, PowerShell 7, DBeaver, .NET SDK, GitHub CLI, Git LFS, Go, Bruno, Neovim, VS Build Tools 2022, 7-Zip, WSL2, all Font tweaks, Tweak.VSCodeMenu. Verified **per-user** (NeedsAdmin = $false): Git (`--scope user`), Edge WebView2 (`--scope user`), JetBrains Toolbox (`--scope user`), Windows App SDK Runtime 1.8 (MSIX), DirectX (MSIX), Microsoft Teams (MSIX), NVM for Windows (v2 installer is `PrivilegesRequired=lowest`; HKCU env vars, shim mode). Everything else is portable/zip/per-user. Modules use `-Scope CurrentUser` **always** (decision taken; not AllUsers).
+   - **`--scope user` rule**: only pass it for rows carrying `Scope = "user"` in the catalog. Manifests without user scope abort with "no applicable installer" if forced; portable/zip/MSIX packages are already per-user and ignore/abuse the flag. Scopes were verified in `microsoft/winget-pkgs` manifests.
 3. **Profile merge by markers** `# >>> setup-pc: <id> >>>` / `<<<`: replaces marked regions in-place, appends missing blocks, NEVER touches content outside markers (user's manual config is preserved). `[regex]::Replace` needs `'$$'` escaping; the **append** branch must use the UN-escaped region (past bug: `$$OhMyPoshConfig` written to file).
 4. **VS Code installs silently** with `/MERGETASKS="!runcode,addcontextmenufiles,addcontextmenufolders,associatewithfiles,addtopath"` — task names are identical for stable/Insiders (no "insiders" suffix; earlier bug). Context menu entries come exclusively from `vscode-context-menu.ps1`, never from the installer.
 5. **Node-dependent tweaks (pnpm/OpenCode)** are allowed when `Tweak.NodeLTS` selected **OR** `Test-NodeAvailable` (memoized: `npm -v` direct probe -> `fnm exec -- npm -v` -> `nvm current`). Root cause that required this: fnm injects its multishell PATH only during execution (after guards), so `Get-Command npm` lies at menu time.
@@ -79,7 +80,7 @@ Flags: `-front`, `-back`, `-NoApps`, `-NoTweaks`, `-NoPwsh`, hidden `-ElevatedFo
 
 - Working state on the main branch; tested by the user on real Windows runs (menus, NVM direct install, elevation guard, OpenCode guard with pre-existing Node).
 - `SESSION_HANDOFF.md` (this file) committed alongside the work.
-- Recent commits: `8fbb445` Node-dependent tweaks with existing runtime; `403b7ce` non-privileged runs; `8485009` PowerToys + wrong-user guard; `dda41fe` invoke/ module split. Latest changes: NVM per-user (NeedsAdmin=false, v2 installer is PrivilegesRequired=lowest); new winget app `sharkdp.bat`; PSFzf profile block got fzf styling + Ctrl+t preview via `bat` (runtime `Get-Command bat` fallback to `type`).
+- Recent commits: `8fbb445` Node-dependent tweaks with existing runtime; `403b7ce` non-privileged runs; `8485009` PowerToys + wrong-user guard; `dda41fe` invoke/ module split. Latest changes: NVM per-user (NeedsAdmin=false, v2 installer is PrivilegesRequired=lowest); new winget app `sharkdp.bat`; PSFzf profile block got fzf styling + Ctrl+t preview via `bat` (runtime `Get-Command bat` fallback to `type`); catalog expanded with a Runtime group (VC++ 2015+/2013/2012 x64+x86, .NET Desktop Runtime 8/10, Edge WebView2, Windows App SDK 1.8, DirectX, Temurin JRE 21) plus CLI/Dev utilities, and `--scope user` support (Git/EdgeWebView2/JetBrains Toolbox, Teams flip to per-user).
 
 ## Next steps (backlog, not decided)
 
@@ -88,6 +89,7 @@ Flags: `-front`, `-back`, `-NoApps`, `-NoTweaks`, `-NoPwsh`, hidden `-ElevatedFo
 - Consider flag to restore Windows Terminal auto-apply if crash cause is identified.
 - PowerToys per-user caveat: if the script someday elevates as a different account (guard now blocks that), revisit.
 - winget `Microsoft.PowerShell` is machine-scope (NeedsAdmin=true); a `--scope user` attempt could make PS7 non-elevated, but MSI per-user support is uncertain.
+- Validate on a real run the ambiguous scope rows: `Bruno.Bruno` and `Neovim.Neovim` are manifest `machine` (kept NeedsAdmin=true) while `wez.wezterm` (Inno, no scope) is marked `$false` — flip any of them if the installer proves otherwise.
 
 ## Validation checklist for any change
 

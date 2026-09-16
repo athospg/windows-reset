@@ -12,11 +12,13 @@ Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 ## Usage
 
-The script works in any PowerShell window. When an admin account is available, the script automatically relaunches itself elevated (accept the UAC prompt). Running from a standard user also works: elevation-only items (machine-wide installs such as Git/DBeaver/.NET/Teams, Nerd Fonts and the VS Code context menu) show up disabled (with a [*] marker) and everything else runs normally - PowerShell modules install with `-Scope CurrentUser` in that case:
+The script works in any PowerShell window. When an admin account is available, the script automatically relaunches itself elevated (accept the UAC prompt). Running from a standard user also works: elevation-only items (machine-wide installs such as the Visual C++/.NET runtimes, PowerShell 7, DBeaver, Go, Nerd Fonts and the VS Code context menu) show up disabled (with a [*] marker) and everything else runs normally - PowerShell modules install with `-Scope CurrentUser` in that case:
 
 ```powershell
 .\setup-win.ps1
 ```
+
+Packages whose winget manifest supports a per-user install (Git, Edge WebView2, JetBrains Toolbox) are installed with `--scope user`, so they also work for standard users.
 
 To select the default options for frontend development, you can run the script with the `-front` parameter:
 

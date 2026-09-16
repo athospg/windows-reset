@@ -368,7 +368,13 @@ foreach ($item in $selecionados) {
             wsl --install -d Ubuntu
         }
         Default {
-            winget install --id $item.ID $wingetArgs
+            # Catalog rows with Scope = "user" support a per-user install
+            # (verified in the winget-pkgs manifests). The flag is passed ONLY
+            # for those: packages without user scope in their manifest abort
+            # with "no applicable installer" when forced.
+            $installArgs = $wingetArgs
+            if ($item.Scope -eq "user") { $installArgs += @("--scope", "user") }
+            winget install --id $item.ID $installArgs
         }
     }
 }
