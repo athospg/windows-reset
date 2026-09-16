@@ -26,6 +26,11 @@
 .PARAMETER NoTweaks
     Skips the tweaks selection menu; no tweaks are applied.
 
+.PARAMETER DryRun
+    Runs the menus and the confirmation, then prints every action that would
+    be executed and exits without installing, writing files or rebooting.
+    No UAC prompt is shown.
+
 .PARAMETER help
     Displays this help menu with instructions for using the script.
 
@@ -45,6 +50,9 @@ param (
     [switch]$NoApps,
     # Skip the tweaks selection menu (menu 2): no tweaks are applied
     [switch]$NoTweaks,
+    # Print the actions that would run (apps, tweaks, profile, reboot) and
+    # exit without changing anything. No UAC prompt, no installs, no writes.
+    [switch]$DryRun,
     # Internal: username captured before the self-elevation relaunch. Used to
     # abort when UAC elevates with a different admin account, which would make
     # every per-user install ($LOCALAPPDATA, $PROFILE, npm, fnm) land on the
@@ -64,17 +72,13 @@ if ($help) {
 # of an admin-group user runs with a FILTERED token (Administrators SID is
 # deny-only), so IsInRole is $false there.
 # - $isElevated: token can actually perform admin operations right now.
-#   Drives the disabled state of NeedsAdmin items (lines farther below).
 # - $isAdminMember: user belongs to the Administrators group (SID
-#   S-1-5-32-544, still present in the filtered token). Drives the
-#   self-elevation relaunch.
-# Relaunch rules:
-# - Admin member + non-elevated terminal -> relaunch elevated (UAC).
-# - Already elevated (via relaunch or manually, -ElevatedFor set) -> run
-#   as-is, no further relaunch.
-# - Standard user -> DON'T elevate. The menus stay available with the
-#   elevation-only items disabled (fonts, machine-wide installs, HKCR
-#   tweaks...) and PowerShell modules install with -Scope CurrentUser.
+#   S-1-5-32-544, still present in the filtered token).
+# The decision itself lives in invoke/elevation.ps1 (pure, unit-tested).
+$PSScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $PSScriptDir "invoke\elevation.ps1") # Get-ElevationPlan
+. (Join-Path $PSScriptDir "invoke\winget.ps1")    # Get-WingetInstallArgs
+
 $identity      = [Security.Principal.WindowsIdentity]::GetCurrent()
 $isElevated    = (New-Object Security.Principal.WindowsPrincipal($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
@@ -90,7 +94,10 @@ if (-not $isAdminMember) {
     $isAdminMember = [bool]($identity.Groups | Where-Object { $_.Equals((New-Object Security.Principal.SecurityIdentifier($adminSidText))) })
 }
 
-if ($isAdminMember -and -not $isElevated -and -not $ElevatedFor) {
+$elevationPlan = Get-ElevationPlan -IsAdminMember $isAdminMember -IsElevated $isElevated -ElevatedFor $ElevatedFor -DryRun:$DryRun
+$enableAdminItems = $elevationPlan.EnableAdminItems
+
+if ($elevationPlan.Action -eq "Relaunch") {
     # Relaunch keeps the window open (-NoExit) so errors don't vanish instantly.
     # Only pass flags when true: PowerShell 5.1's -File mode cannot convert
     # the string "False" into a [switch] parameter bound with ":$false".
@@ -108,9 +115,11 @@ if ($isAdminMember -and -not $isElevated -and -not $ElevatedFor) {
     } catch {
         # UAC declined or failed: keep executing un-elevated instead of dying
         Write-Host "UAC elevation was declined or failed; continuing WITHOUT elevation." -ForegroundColor Yellow
+        # The plan assumed the relaunch would succeed: fall back to the real token
+        $enableAdminItems = $isElevated
     }
 }
-if (-not $isElevated) {
+if (-not $enableAdminItems) {
     Write-Host "Running WITHOUT elevation: items that require administrator rights" -ForegroundColor Yellow
     Write-Host "are disabled in the menus (marked [*] with [✗]); everything else works normally." -ForegroundColor Yellow
 }
@@ -133,8 +142,8 @@ credentials of '$ElevatedFor'.
     exit 1
 }
 
-# Base path shared with every helper module
-$PSScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Base path shared with every helper module ($PSScriptDir is resolved before
+# the elevation strategy, which needs invoke/elevation.ps1)
 
 # Dot-source the helper modules (shared session scope keeps the small
 # helpers decoupled from the orchestration below)
@@ -151,9 +160,9 @@ $vscodeMenuScript = Join-Path $PSScriptDir "vscode-context-menu.ps1"
 # ------------------------------------------------------------------------------
 $catalogo = Get-AppCatalog
 
-# Without elevation (effective token), disable every item in the catalogs
-# that requires admin
-if (-not $isElevated) {
+# Without admin capability (disabled token, or a declined UAC relaunch),
+# disable every item in the catalogs that requires admin
+if (-not $enableAdminItems) {
     foreach ($item in $catalogo) {
         $item | Add-Member -NotePropertyName Disabled -NotePropertyValue $item.NeedsAdmin -Force
     }
@@ -190,9 +199,9 @@ $ompAvailable = $availability.Omp
 
 $tweaks = New-TweakCatalog -NodeManagerAvailable $availability.NodeManager -FzfAvailable $availability.Fzf -VscodeAvailable $availability.Vscode
 
-# Without elevation (effective token), disable the tweaks that require admin
+# Without admin capability, disable the tweaks that require admin
 # (fonts write to HKLM; the VS Code context menu tweak writes to HKCR)
-if (-not $isElevated) {
+if (-not $enableAdminItems) {
     foreach ($item in $tweaks) {
         $item | Add-Member -NotePropertyName Disabled -NotePropertyValue $item.NeedsAdmin -Force
     }
@@ -368,13 +377,11 @@ foreach ($item in $selecionados) {
             wsl --install -d Ubuntu
         }
         Default {
-            # Catalog rows with Scope = "user" support a per-user install
-            # (verified in the winget-pkgs manifests). The flag is passed ONLY
-            # for those: packages without user scope in their manifest abort
-            # with "no applicable installer" when forced.
-            $installArgs = $wingetArgs
-            if ($item.Scope -eq "user") { $installArgs += @("--scope", "user") }
-            winget install --id $item.ID $installArgs
+            # Get-WingetInstallArgs appends '--scope user' only for catalog
+            # rows that declare Scope = "user" (verified in the winget-pkgs
+            # manifests); forcing it elsewhere aborts with "no applicable
+            # installer".
+            winget install --id $item.ID (Get-WingetInstallArgs -Item $item -BaseArgs $wingetArgs)
         }
     }
 }
