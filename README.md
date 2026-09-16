@@ -46,3 +46,38 @@ Skip flags are also available for partial runs:
 .\setup-win.ps1 -NoPwsh    # skips the PowerShell profile menu (3)
 .\setup-win.ps1 -NoApps -NoTweaks  # only reconfigure the PowerShell profile
 ```
+
+## Testing
+
+Four ways to validate the script, from cheapest to most realistic:
+
+**1. Offline logic tests** (no Windows needed, works on Linux/WSL):
+
+```powershell
+pwsh -NoProfile -File tests/run-tests.ps1
+```
+
+Covers the catalog invariants, the `--scope user` argument building, the elevation decision and the profile merge.
+
+**2. Dry run** - runs the menus and the confirmation, then prints every action that would run without installing, writing or rebooting (no UAC prompt):
+
+```powershell
+.\setup-win.ps1 -DryRun
+.\setup-win.ps1 -front -DryRun
+```
+
+**3. Package preflight** - checks that every package ID in the catalog still resolves in winget, and optionally that the per-user (`--scope user`) packages really support that scope. Nothing is installed; downloads are discarded:
+
+```powershell
+pwsh -NoProfile -File tools/Test-CatalogPackages.ps1
+pwsh -NoProfile -File tools/Test-CatalogPackages.ps1 -CheckScope
+```
+
+**4. Disposable end-to-end run** - Windows Sandbox (Pro/Enterprise/Edu): the repository is mapped read-only and everything installs inside a throwaway environment:
+
+```powershell
+pwsh -NoProfile -File sandbox/Start-Sandbox.ps1
+pwsh -NoProfile -File sandbox/Start-Sandbox.ps1 -SetupArgs "-front"
+```
+
+Do not select WSL2 inside the sandbox (no nested virtualization) and expect the final reboot to be unavailable there.
