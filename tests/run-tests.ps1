@@ -65,6 +65,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot "invoke/winget.ps1")
 . (Join-Path $repoRoot "invoke/elevation.ps1")
 . (Join-Path $repoRoot "invoke/profile.ps1")
+. (Join-Path $repoRoot "invoke/dryrun.ps1")
 
 Get-ChildItem -Path $PSScriptRoot -Filter "*.tests.ps1" | Sort-Object Name | ForEach-Object {
     Write-Host "`n=== $($_.Name) ===" -ForegroundColor Magenta

@@ -152,6 +152,7 @@ credentials of '$ElevatedFor'.
 . (Join-Path $PSScriptDir "invoke\catalog.ps1")   # Get-AppCatalog, New-TweakCatalog
 . (Join-Path $PSScriptDir "invoke\fonts.ps1")     # Install-NerdFont
 . (Join-Path $PSScriptDir "invoke\profile.ps1")   # Get-ProfileBlock, Merge-ProfileBlock, Update-PowerShellProfiles
+. (Join-Path $PSScriptDir "invoke\dryrun.ps1")    # Write-DryRunPlan
 
 $vscodeMenuScript = Join-Path $PSScriptDir "vscode-context-menu.ps1"
 
@@ -309,6 +310,30 @@ Write-Host "==================================================================" 
 Write-Host "`nPress any key to START or 'Ctrl + C' to cancel..." -ForegroundColor Green
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 
+# Default arguments for winget to ensure silent installation and acceptance
+# of agreements (declared before the dry-run branch so its plan matches the
+# real execution)
+$wingetArgs = @("--silent", "--accept-package-agreements", "--accept-source-agreements", "--ignore-security-hash")
+
+# ------------------------------------------------------------------------------
+# DRY RUN: print the plan and stop before touching the system (no UAC, no
+# installs, no writes, no reboot)
+# ------------------------------------------------------------------------------
+if ($DryRun) {
+    $runtimeProbe = @{
+        Fnm      = [bool](Get-Command fnm -ErrorAction SilentlyContinue)
+        Nvm      = [bool](Get-Command nvm -ErrorAction SilentlyContinue)
+        Npm      = [bool](Get-Command npm -ErrorAction SilentlyContinue)
+        Corepack = [bool](Get-Command corepack -ErrorAction SilentlyContinue)
+        Pwsh     = [bool](Get-Command pwsh -ErrorAction SilentlyContinue)
+    }
+    Write-DryRunPlan -AppItems $selecionados -TweakItems $tweaksSelecionados `
+        -ProfileBlocks $profileBlocks -ChosenBlockIds $chosenBlockIds -SelectedModules $selectedModules `
+        -WingetBaseArgs $wingetArgs -Runtime $runtimeProbe -NoPwsh:$NoPwsh `
+        -RequiresReboot $precisaWSL -ScriptDir $PSScriptDir -AdminItemsEnabled $enableAdminItems | Out-Null
+    exit 0
+}
+
 # ==============================================================================
 # EXECUTION
 # ==============================================================================
@@ -319,9 +344,6 @@ Write-Host "==================================================" -ForegroundColor
 # ------------------------------------------------------------------------------
 # APP INSTALLATION
 # ------------------------------------------------------------------------------
-# Default arguments for winget to ensure silent installation and acceptance of agreements
-$wingetArgs = @("--silent", "--accept-package-agreements", "--accept-source-agreements", "--ignore-security-hash")
-
 # VS Code installs silently. The context menu entries are created by
 # the 'vscode-context-menu.ps1' tweak step, so the equivalent installer
 # tasks are disabled here to avoid duplicated entries.
